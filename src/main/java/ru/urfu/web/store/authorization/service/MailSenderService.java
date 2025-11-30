@@ -1,11 +1,8 @@
 package ru.urfu.web.store.authorization.service;
 
-import jakarta.annotation.PostConstruct;
-import jakarta.mail.MessagingException;
 import lombok.RequiredArgsConstructor;
 import lombok.SneakyThrows;
 import org.apache.logging.log4j.util.Strings;
-import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.mail.javamail.MimeMessageHelper;
 import org.springframework.stereotype.Service;
