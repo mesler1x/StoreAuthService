@@ -1,0 +1,11 @@
+spring:
+  datasource:
+    url: ${WEBSTORE_PG_URL}
+    username: ${WEBSTORE_PG_USER}
+    password: ${WEBSTORE_PG_PASS}
+  application:
+    name: StoreAuthService
+
+redis:
+  host: ${WEBSTORE_REDIS_HOST}
+  port: ${WEBSTORE_REDIS_PORT}

@@ -1,0 +1,33 @@
+services:
+  this_app:
+    build:
+      dockerfile: ./Dockerfile
+    environment:
+      - WEBSTORE_REDIS_HOST=redis
+      - WEBSTORE_REDIS_PORT=6379
+      - WEBSTORE_PG_URL=jdbc:postgresql://postgres:5432/webstore
+      - WEBSTORE_PG_USER=user
+      - WEBSTORE_PG_PASS=password
+      - SMTP_PASSWORD=${SMTP_YA_PWD}
+    ports:
+      - "8080:8080"
+    depends_on:
+      - redis
+      - postgres
+
+  redis:
+    image: redis:latest
+    container_name: redis_container
+    ports:
+      - "6379:6379"
+    volumes:
+      - ./redisdata:/data
+
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: webstore
+    ports:
+      - "6432:5432"
