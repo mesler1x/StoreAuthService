@@ -150,13 +150,15 @@ jobs:
           ENV_EOF
           
           echo "10. Deploying to Docker Swarm..."
+          envsubst < docker-compose.release.swarm.yml > docker-compose.swarm.resolved.yml
+
           # Проверяем, существует ли стек
           if docker stack ls | grep -q auth-service; then
             echo "Updating existing stack..."
-            docker stack config deploy -c docker-compose.release.swarm.yml auth-service
+            docker stack config deploy -c docker-compose.swarm.resolved.yml auth-service
           else
             echo "Creating new stack..."
-            docker stack config deploy -c docker-compose.release.swarm.yml auth-service
+            docker stack config deploy -c docker-compose.swarm.resolved.yml auth-service
           fi
           
           echo "11. Waiting for service to start..."
