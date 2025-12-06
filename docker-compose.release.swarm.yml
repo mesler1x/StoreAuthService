@@ -1,6 +1,8 @@
 services:
   auth-service:
     image: cr.yandex/${REGISTRY_ID}/auth-service:latest
+    env_file:
+      - .env
     environment:
       - WEBSTORE_REDIS_HOST=store_redis
       - WEBSTORE_REDIS_PORT=6379
