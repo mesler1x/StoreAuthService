@@ -132,7 +132,7 @@ jobs:
           echo "7. Starting local dependencies (PostgreSQL + Redis)..."
           # Проверяем, не запущены ли уже контейнеры
           if ! docker ps --format '{{.Names}}' | grep -q 'store_postgres'; then
-            docker-compose -f docker-compose.release.local.yml up -d
+            docker-compose up -f docker-compose.release.local.yml -d
             sleep 3
           fi
           
@@ -155,10 +155,10 @@ jobs:
           # Проверяем, существует ли стек
           if docker stack ls | grep -q auth-service; then
             echo "Updating existing stack..."
-            docker stack config deploy -c docker-compose.swarm.resolved.yml auth-service
+            docker stack deploy -c docker-compose.swarm.resolved.yml auth-service
           else
             echo "Creating new stack..."
-            docker stack config deploy -c docker-compose.swarm.resolved.yml auth-service
+            docker stack deploy -c docker-compose.swarm.resolved.yml auth-service
           fi
           
           echo "11. Waiting for service to start..."
