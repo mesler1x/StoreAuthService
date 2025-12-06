@@ -110,7 +110,7 @@ jobs:
           if ! docker node ls &> /dev/null; then
             echo "Initializing Swarm..."
             INTERNAL_IP=$(hostname -I | awk '{print $1}')
-            docker swarm init --advertise-addr $INTERNAL_IP || docker swarm init
+            docker swarm init --advertise-addr ${{ env.VM_HOST }} || docker swarm init
           fi
           
           echo "4. Creating overlay network if needed..."
