@@ -132,7 +132,7 @@ jobs:
           echo "7. Starting local dependencies (PostgreSQL + Redis)..."
           # Проверяем, не запущены ли уже контейнеры
           if ! docker ps --format '{{.Names}}' | grep -q 'store_postgres'; then
-            docker compose up -f docker-compose.release.local.yml -d
+            docker-compose -f docker-compose.release.local.yml up -d
             sleep 3
           fi
           
