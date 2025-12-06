@@ -1,0 +1,167 @@
+name: Deploy to Yandex Container Registry
+
+on:
+  push:
+    branches: [ main, 'feature/**' ]
+  pull_request:
+    branches: [ main ]
+
+env:
+  REGISTRY: cr.yandex
+  REGISTRY_ID: ${{ secrets.YC_REGISTRY_ID }}
+  IMAGE_NAME: auth-service
+  VM_USER: ${{ secrets.SWARM_MANAGER_USER }}
+  VM_HOST: ${{ secrets.SWARM_MANAGER_HOST }}
+  DEPLOY_DIR: /home/${{ secrets.SWARM_MANAGER_USER }}/store-auth
+  DOCKERFILE_PATH: ./Dockerfile
+
+jobs:
+  build-and-push:
+    name: Build and push Docker image
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Login to Container Registry with Docker
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}/${{ env.REGISTRY_ID }}
+          username: json_key
+          password: ${{ secrets.YC_SA_JSON }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Extract metadata for Docker
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=sha,prefix={{branch}}-
+            latest
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ${{ env.DOCKERFILE_PATH }}
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+
+  deploy-to-swarm:
+    name: Deploy to Docker Swarm
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'  # Деплоим только с main ветки
+
+    steps:
+      - name: Checkout code (для получения docker-compose файлов)
+        uses: actions/checkout@v4
+
+
+      - name: Setup SSH connection once
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SWARM_SSH_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H ${{ env.VM_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Prepare deployment directory and copy files
+        run: |
+          # Копируем docker-compose файлы на VM
+          scp -i ~/.ssh/id_ed25519 \
+            docker-compose.release.local.yml \
+            docker-compose.release.swarm.yml \
+            ${{ env.VM_USER }}@${{ env.VM_HOST }}:${{ env.DEPLOY_DIR }}/
+
+      - name: Execute complete deployment in one SSH session
+        run: |
+          ssh -i ~/.ssh/id_ed25519 ${{ env.VM_USER }}@${{ env.VM_HOST }} << 'EOF'
+          set -e  # Выходим при первой ошибке
+          
+          echo "=== Starting deployment in $(pwd) ==="
+          
+          # Переходим в директорию проекта
+          cd ${{ env.DEPLOY_DIR }}
+          
+          echo "1. Ensuring Docker is installed..."
+          if ! command -v docker &> /dev/null; then
+            echo "Docker not found, installing..."
+            sudo apt-get update
+            sudo apt-get install -y apt-transport-https ca-certificates curl software-properties-common
+            curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo apt-key add -
+            sudo add-apt-repository "deb [arch=amd64] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable"
+            sudo apt-get update
+            sudo apt-get install -y docker-ce docker-ce-cli containerd.io
+            sudo usermod -aG docker $USER
+          else
+            echo "Docker already installed: $(docker --version)"
+          fi
+          
+          echo "2. Ensuring Docker Compose is installed..."
+          if ! command -v docker-compose &> /dev/null; then
+            echo "Installing Docker Compose plugin..."
+            sudo apt install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+          fi
+          
+          echo "3. Initializing Docker Swarm if needed..."
+          if ! docker node ls &> /dev/null; then
+            echo "Initializing Swarm..."
+            INTERNAL_IP=$(hostname -I | awk '{print $1}')
+            docker swarm init --advertise-addr $INTERNAL_IP || docker swarm init
+          fi
+          
+          echo "4. Creating overlay network if needed..."
+          if ! docker network ls | grep -q store-net; then
+            docker network create --driver overlay --attachable store-net
+          fi
+          
+          echo "5. Logging into Yandex Container Registry..."
+          echo '${{ secrets.YC_SA_JSON }}' | docker login \
+            --username json_key \
+            --password-stdin \
+            cr.yandex
+          
+          echo "6. Pulling latest image..."
+          docker pull cr.yandex/${{ secrets.YC_REGISTRY_ID }}/auth-service:latest
+          
+          echo "7. Starting local dependencies (PostgreSQL + Redis)..."
+          # Проверяем, не запущены ли уже контейнеры
+          if ! docker ps --format '{{.Names}}' | grep -q 'store_postgres'; then
+            docker-compose -f docker-compose.release.local.yml up -d
+            sleep 3
+          fi
+          
+          echo "8. Connecting local containers to overlay network..."
+          docker network connect store-net store_postgres 2>/dev/null || true
+          docker network connect store-net store_redis 2>/dev/null || true
+          
+          echo "9. Preparing environment variables..."
+          # Создаем .env файл для docker-compose
+          cat > .env << ENV_EOF
+          REGISTRY_ID=${{ secrets.YC_REGISTRY_ID }}
+          NODE_NAME=$(hostname)
+          SERVICE_PORT=8080
+          SMTP_YA_PWD=${{ secrets.SMTP_PASSWORD }}
+          ENV_EOF
+          
+          echo "10. Deploying to Docker Swarm..."
+          # Проверяем, существует ли стек
+          if docker stack ls | grep -q auth; then
+            echo "Updating existing stack..."
+            docker stack deploy -c docker-compose.release.swarm.yml auth --with-registry-auth
+          else
+            echo "Creating new stack..."
+            docker stack deploy -c docker-compose.release.swarm.yml auth --with-registry-auth
+          fi
+          
+          echo "11. Waiting for service to start..."
+          sleep 10
+          
+          echo "12. Verifying deployment..."
+          echo "Service status:"
+          docker service ls
