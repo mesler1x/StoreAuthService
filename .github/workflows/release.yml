@@ -150,8 +150,6 @@ jobs:
           ENV_EOF
           
           echo "10. Deploying to Docker Swarm..."
-          envsubst < docker-compose.release.swarm.yml > docker-compose.swarm.resolved.yml
-
           # Проверяем, существует ли стек
           if docker stack ls | grep -q auth-service; then
             echo "Updating existing stack..."
