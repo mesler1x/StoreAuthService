@@ -40,7 +40,6 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ env.REGISTRY_ID }}/auth-service
           tags: |
-            type=sha,prefix={{branch}}-
             latest
 
       - name: Build and push Docker image
