@@ -2,7 +2,7 @@ name: Deploy to Yandex Container Registry
 
 on:
   push:
-    branches: [ main, 'feature/**' ]
+    branches: [ main ]
   pull_request:
     branches: [ main ]
 
@@ -105,6 +105,11 @@ jobs:
             echo "Installing Docker Compose plugin..."
             sudo apt install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
           fi
+          
+          echo "0. Fixing Docker permissions..."
+          sudo usermod -aG docker $USER || true
+          # Для применения изменений в текущей сессии
+          newgrp docker || true
           
           echo "3. Initializing Docker Swarm if needed..."
           if ! docker node ls &> /dev/null; then
