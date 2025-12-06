@@ -40,7 +40,7 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ env.REGISTRY_ID }}/auth-service
           tags: |
-            latest
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/master' }}
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
