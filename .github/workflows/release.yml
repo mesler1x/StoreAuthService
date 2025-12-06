@@ -137,12 +137,11 @@ jobs:
           fi
           
           echo "8. Connecting local containers to overlay network..."
-          docker network connect store-net store_postgres || true
-          docker network connect store-net store_redis || true
+          docker network connect store-net store_postgres
+          docker network connect store-net store_redis
           
           echo "9. Preparing environment variables..."
           rm .env
-          # Создаем .env файл для docker-compose
           cat > .env << ENV_EOF
           REGISTRY_ID=${{ secrets.YC_REGISTRY_ID }}
           NODE_NAME=$(hostname)
@@ -154,10 +153,10 @@ jobs:
           # Проверяем, существует ли стек
           if docker stack ls | grep -q auth-service; then
             echo "Updating existing stack..."
-            docker stack deploy -c docker-compose.release.swarm.yml auth-service
+            docker stack config deploy -c docker-compose.release.swarm.yml auth-service
           else
             echo "Creating new stack..."
-            docker stack deploy -c docker-compose.release.swarm.yml auth-service
+            docker stack config deploy -c docker-compose.release.swarm.yml auth-service
           fi
           
           echo "11. Waiting for service to start..."
