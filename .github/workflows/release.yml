@@ -8,8 +8,8 @@ on:
 
 env:
   REGISTRY: cr.yandex
-  REGISTRY_ID: ${{ secrets.YC_REGISTRY_ID }}
   IMAGE_NAME: auth-service
+  REGISTRY_ID: ${{ secrets.YC_REGISTRY_ID }}
   VM_USER: ${{ secrets.SWARM_MANAGER_USER }}
   VM_HOST: ${{ secrets.SWARM_MANAGER_HOST }}
   DEPLOY_DIR: /home/${{ secrets.SWARM_MANAGER_USER }}/store-auth
@@ -57,7 +57,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout code (для получения docker-compose файлов)
+      - name: Checkout code
         uses: actions/checkout@v4
 
       - name: Setup SSH connection once
@@ -74,94 +74,55 @@ jobs:
             docker-compose.release.swarm.yml \
             ${{ env.VM_USER }}@${{ env.VM_HOST }}:${{ env.DEPLOY_DIR }}/
 
-      - name: Execute complete deployment in one SSH session
+      - name: Execute complete deployment
         run: |
           ssh -i ~/.ssh/id_ed25519 ${{ env.VM_USER }}@${{ env.VM_HOST }} << 'EOF'
           set -e
-          
-          echo "=== Starting deployment in $(pwd) ==="
-          
-          # Переходим в директорию проекта
+                    
           cd ${{ env.DEPLOY_DIR }}
           
-          echo "1. Ensuring Docker is installed..."
-          if ! command -v docker &> /dev/null; then
-            echo "Docker not found, installing..."
-            sudo apt-get update
-            sudo apt-get install -y apt-transport-https ca-certificates curl software-properties-common
-            curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo apt-key add -
-            sudo add-apt-repository "deb [arch=amd64] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable"
-            sudo apt-get update
-            sudo apt-get install -y docker-ce docker-ce-cli containerd.io
-            sudo usermod -aG docker $USER
-          else
-            echo "Docker already installed: $(docker --version)"
-          fi
-          
-          echo "2. Ensuring Docker Compose is installed..."
-          if ! command -v docker-compose &> /dev/null; then
-            echo "Installing Docker Compose plugin..."
-            sudo apt install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
-          fi
-          
-          echo "Fixing Docker permissions..."
-          sudo usermod -aG docker $USER || true
-          newgrp docker || true
-          
-          echo "3. Initializing Docker Swarm if needed..."
+          echo "Initializing Docker Swarm if needed..."
           if ! docker node ls &> /dev/null; then
             echo "Initializing Swarm..."
             INTERNAL_IP=$(hostname -I | awk '{print $1}')
             docker swarm init --advertise-addr ${{ env.VM_HOST }} || docker swarm init
           fi
           
-          echo "4. Creating overlay network if needed..."
+          echo "Creating overlay network if needed..."
           if ! docker network ls | grep -q store-net; then
             docker network create --driver overlay --attachable store-net
           fi
           
-          echo "5. Logging into Yandex Container Registry..."
+          echo "Logging into Yandex Container Registry..."
           echo '${{ secrets.YC_SA_JSON }}' | docker login \
             --username json_key \
             --password-stdin \
             cr.yandex
           
-          echo "6. Pulling latest image..."
-          docker pull cr.yandex/${{ secrets.YC_REGISTRY_ID }}/auth-service:latest
+          echo "Pulling latest image..."
+          docker pull cr.yandex/${{ secrets.YC_REGISTRY_ID }}/${{ env.IMAGE_NAME }}:latest
           
-          echo "7. Starting local dependencies (PostgreSQL + Redis)..."
-          # Проверяем, не запущены ли уже контейнеры
+          echo "Starting local dependencies (PostgreSQL + Redis)..."
           if ! docker ps --format '{{.Names}}' | grep -q 'store_postgres'; then
             docker-compose -f docker-compose.release.local.yml up -d
             sleep 3
+            echo "Connecting local containers to overlay network..."
+            docker network connect store-net store_postgres
+            docker network connect store-net store_redis
           fi
           
-          echo "8. Connecting local containers to overlay network..."
-          docker network connect store-net store_postgres
-          docker network connect store-net store_redis
-          
-          echo "9. Preparing environment variables..."
-          rm .env
-          cat > .env << ENV_EOF
+          echo "Preparing environment variables..."
+          rm .env_${{ env.IMAGE_NAME }}
+          cat > .env_${{ env.IMAGE_NAME }} << ENV_EOF
           REGISTRY_ID=${{ secrets.YC_REGISTRY_ID }}
           NODE_NAME=$(hostname)
           SERVICE_PORT=8080
           SMTP_YA_PWD=${{ secrets.SMTP_PASSWORD }}
           ENV_EOF
           
-          echo "10. Deploying to Docker Swarm..."
-          # Проверяем, существует ли стек
-          if docker stack ls | grep -q auth-service; then
-            echo "Updating existing stack..."
-            docker stack deploy -c docker-compose.swarm.resolved.yml auth-service
-          else
-            echo "Creating new stack..."
-            docker stack deploy -c docker-compose.swarm.resolved.yml auth-service
-          fi
+          echo "Deploying to Docker Swarm..."
+          docker stack deploy -c docker-compose.release.swarm.yml auth-service
           
-          echo "11. Waiting for service to start..."
-          sleep 10
-          
-          echo "12. Verifying deployment..."
           echo "Service status:"
+          sleep 10
           docker service ls
