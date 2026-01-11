@@ -8,7 +8,7 @@ import ru.urfu.web.store.authorization.controller.exception.AlreadyExistExceptio
 import ru.urfu.web.store.authorization.controller.exception.NotFoundException;
 import ru.urfu.web.store.authorization.controller.exception.UnauthorizedException;
 import ru.urfu.web.store.authorization.entity.dto.EmailVerificationRequest;
-import ru.urfu.web.store.authorization.entity.dto.LoginRequest;
+import ru.urfu.web.store.authorization.entity.dto.RegisterRequest;
 import ru.urfu.web.store.authorization.repository.RedisMailVerificationRepository;
 import ru.urfu.web.store.authorization.repository.UserRepository;
 
@@ -21,8 +21,8 @@ public class AuthService {
     private final MailSenderService mailSenderService;
     private final RedisMailVerificationRepository redisMailVerificationRepository;
 
-    public void processLogin(@Valid LoginRequest loginRequest) {
-        var email = loginRequest.email();
+    public void processRegister(@Valid RegisterRequest registerRequest) {
+        var email = registerRequest.email();
         if (userRepository.isUserEmailVerified(email)) {
             throw new AlreadyExistException("Пользователь с данным почтовым адресом уже существует");
         }
@@ -46,16 +46,21 @@ public class AuthService {
         });
     }
 
-    public void processMailResend(LoginRequest loginRequest) {
-        if (userRepository.isUserEmailVerified(loginRequest.email())) {
-            throw new NotFoundException("Пользователь с данным почтовым уже подтвердил свою почту");
-        }
-        if (userRepository.isUserEmailExists(loginRequest.email())) {
+    public void processMailResend(RegisterRequest registerRequest) {
+        if (!userRepository.isUserEmailExists(registerRequest.email())) {
             throw new NotFoundException("Пользователь с данным email не существует");
         }
 
-        redisMailVerificationRepository.delete(loginRequest.email());
-        mailSenderService.processSendMailEvent(loginRequest.email());
+        redisMailVerificationRepository.delete(registerRequest.email());
+        mailSenderService.processSendMailEvent(registerRequest.email());
+    }
 
+    public void processLogin(RegisterRequest loginRequest) {
+        var email = loginRequest.email();
+        if (!userRepository.isUserEmailExists(email)) {
+            throw new NotFoundException("Пользователь с данным почтовым адресом не существует");
+        }
+
+        mailSenderService.processSendMailEvent(email);
     }
 }
